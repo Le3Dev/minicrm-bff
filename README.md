@@ -4,7 +4,7 @@
 
 **Backend for Frontend** em **Node.js (NestJS)**: a única porta de entrada dos frontends. O AWS API Gateway encaminha tudo para cá, e o BFF orquestra o MS Clientes, o MS Oportunidades e a Azure Function.
 
-> **Situação:** a fazer (aluno B). O passo a passo completo está no guia da pessoa B; este README é o ponto de partida.
+> **Situação:** pronto: rotas de repasse, `GET /aggregated-data`, escopo RF15, Swagger, testes unitários e de arquitetura, Dockerfile.
 
 | | URL |
 | --- | --- |
@@ -36,17 +36,49 @@ Contratos dos serviços chamados:
 - MS Oportunidades: Swagger em `/docs` — [minicrm-ms-oportunidades](https://github.com/Le3Dev/minicrm-ms-oportunidades)
 - Function: [`openapi.yaml`](https://github.com/Le3Dev/minicrm-function/blob/main/src/main/resources/docs/openapi.yaml) (header `x-functions-key`)
 
-## Arquitetura do código (alvo)
+## Arquitetura do código
+
+**Clean Architecture** com a camada de aplicação em **vertical slices** (um pacote por caso de uso):
 
 ```
 src/
-├── domain/          regras puras: escopo do usuário (RF15), tipos
-├── application/     uma pasta por caso de uso (vertical slice) + portas
-├── infrastructure/  clientes HTTP para MS Clientes, MS Oportunidades e Function
-└── api/             controllers NestJS, Swagger em /docs, tratamento de erro
+├── domain/          regras puras: usuários e escopo (RF15), erros no formato dos microsserviços
+├── application/     uma pasta por caso de uso + portas (ServicoRemoto)
+│   ├── clientes/          RepassarClientes
+│   ├── oportunidades/     RepassarOportunidades (confere o cliente antes do POST)
+│   └── aggregated-data/   ObterDadosAgregados (Promise.allSettled + lista de falhas)
+├── infrastructure/  HttpServicoRemoto (fetch com timeout) e leitura das variáveis de ambiente
+└── api/             controllers NestJS, filtro de erros, Swagger em /docs
 ```
 
-`domain` e `application` não importam NestJS nem `infrastructure`; um teste de arquitetura (dependency-cruiser) cobra isso no `npm test`.
+Regras conferidas pelo **dependency-cruiser** (`.dependency-cruiser.cjs`, executado dentro do `npm test`, em `src/arquitetura.spec.ts`):
+
+- `domain` não importa `application`, `infrastructure`, `api` nem `@nestjs/*`.
+- `application` não importa `infrastructure`, `api` nem `@nestjs/*`.
+- `infrastructure` não conhece a `api`; uma slice não depende de outra.
+
+`app.module.ts` é a raiz de composição: liga as portas aos clientes HTTP.
+
+## Como funciona
+
+- Toda rota exige `?usuarioId=` (usuário logado no Shell). Sem ele: `400`; usuário fora da massa: `403`.
+- **Escopo (RF15):** Admin vê todos, Gerente vê a si e aos vendedores dele, Vendedor só a si. Nas listagens o BFF manda esse escopo em `responsavelId=`; pedir um responsável fora dele dá `403 FORA_DO_ESCOPO`.
+- **Repasse:** corpo, status e erro do microsserviço voltam sem alteração (`{status, codigo, erro, erros[]}`), porque o MF mostra `erros[]` campo a campo.
+- `POST /oportunidades` confere antes `GET /clientes/{id}` no MS Clientes; cliente inexistente repassa o `404` e cliente excluído dá `409 CLIENTE_EXCLUIDO`.
+- `GET /aggregated-data` busca clientes (`porPagina=200`) e funil em paralelo, manda o resultado a `POST /api/indicadores` da Function (header `x-functions-key`) e devolve `{usuario, escopo, clientes, funil, indicadores, falhas[]}`. Serviço fora do ar ou lento (timeout de 10 s) vira item de `falhas`, não erro 500.
+- Serviço fora do ar nas rotas de repasse: `504` (timeout) ou `502` (rede), `codigo: SERVICO_INDISPONIVEL`.
+
+## Rodar localmente
+
+Pré-requisito: Node.js 22.
+
+```bash
+cp .env.example .env
+npm ci
+npm run start:dev      # http://localhost:3000/docs
+npm test               # unitários, API (supertest) e arquitetura
+npm run build
+```
 
 ## Variáveis de ambiente
 
@@ -57,7 +89,8 @@ src/
 | `MS_OPORTUNIDADES_URL` | `http://localhost:8081` | URL do MS Oportunidades |
 | `FUNCTION_URL` | `http://localhost:7071` | URL da Function App |
 | `FUNCTION_KEY` | vazio | chave da Function (segredo) |
-| `CORS_ORIGENS` | `http://localhost:5000` | URL do Shell na Vercel |
+| `CORS_ORIGENS` | `http://localhost:5000` | URL do Shell na Vercel (lista separada por vírgula) |
+| `TIMEOUT_MS` | `10000` | `10000` (absorve o cold start) |
 
 ## CI e Docker Hub
 
