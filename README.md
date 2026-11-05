@@ -4,12 +4,12 @@
 
 **Backend for Frontend** em **Node.js (NestJS)**: a única porta de entrada dos frontends. O AWS API Gateway encaminha tudo para cá, e o BFF orquestra o MS Clientes, o MS Oportunidades e a Azure Function.
 
-> **Situação:** pronto: rotas de repasse, `GET /aggregated-data`, escopo RF15, Swagger, testes unitários e de arquitetura, Dockerfile.
+> **Situação:** no ar, pronto: rotas de repasse, `GET /aggregated-data`, escopo RF15, Swagger, testes unitários e de arquitetura, Dockerfile.
 
 | | URL |
 | --- | --- |
-| API na nuvem | `https://<bff>.azurecontainerapps.io` |
-| Swagger | `https://<bff>.azurecontainerapps.io/docs` |
+| API na nuvem | `https://bff.kindbay-40f0b2c9.centralus.azurecontainerapps.io` |
+| Swagger | `https://bff.kindbay-40f0b2c9.centralus.azurecontainerapps.io/docs` |
 | Imagem Docker | `docker.io/leandrocanha/minicrm-bff:latest` |
 
 ## Onde ele fica na solução
